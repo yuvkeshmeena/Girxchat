@@ -1,0 +1,6 @@
+{
+  "name": "GrixChat",
+  "description": "Android WebView client for GrixChat (https://grixchat.pages.dev)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
