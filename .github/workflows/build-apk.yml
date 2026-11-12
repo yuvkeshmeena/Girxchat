@@ -2,9 +2,9 @@ name: Build GrixChat APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 concurrency:
@@ -20,47 +20,59 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
+          cache: 'gradle'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Prepare Test Keystore
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Prepare Environment File
+        run: |
+          # Secrets Gradle Plugin requires .env file to exist
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+
+      - name: Setup Test Keystore
         run: |
           echo "Setting up test keystore..."
           if [ -f "debug.keystore.base64" ]; then
             echo "Decoding debug.keystore from debug.keystore.base64..."
-            base64 -d debug.keystore.base64 > debug.keystore
-          elif [ ! -f "debug.keystore" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || base64 --decode debug.keystore.base64 > debug.keystore 2>/dev/null || true
+          fi
+          # If not present or empty, generate a valid test debug keystore
+          if [ ! -f "debug.keystore" ] || [ ! -s "debug.keystore" ]; then
             echo "Generating new test debug keystore..."
-            keytool -genkey -v -keystore debug.keystore \
+            keytool -genkeypair -v -keystore debug.keystore \
               -storepass android \
               -alias androiddebugkey \
               -keypass android \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -dname "CN=GrixChat Test,OU=Android,O=GrixChat,C=US"
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
-          ls -la debug.keystore
+          ls -lh debug.keystore
 
       - name: Ensure gradlew is executable
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-          fi
+          chmod +x ./gradlew
 
-      - name: Build APK with Test Keystore
+      - name: Build APK with Gradle
         run: |
-          if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace
-          else
-            gradle assembleDebug --stacktrace
-          fi
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Verify and Organize APK
         run: |
@@ -72,12 +84,11 @@ jobs:
           fi
           echo "Found APK at: $APK_PATH"
           cp "$APK_PATH" build-apks/grixchat-app.apk
-          echo "APK_FILE=build-apks/grixchat-app.apk" >> $GITHUB_ENV
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: grixchat-apk
+          name: grixchat-debug-apk
           path: build-apks/grixchat-app.apk
           if-no-files-found: error
           retention-days: 30
@@ -88,4 +99,4 @@ jobs:
           echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Signed With:** Test Debug Keystore" >> $GITHUB_STEP_SUMMARY
-          echo "- **Output APK:** \`grixchat-app.apk\` (Downloadable from workflow artifacts)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Output APK:** \`grixchat-app.apk\` (Downloadable from Actions Artifacts)" >> $GITHUB_STEP_SUMMARY
